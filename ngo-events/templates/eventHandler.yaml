@@ -36,6 +36,13 @@ Resources:
             apiVersion: '2010-03-31'
           });
         }
+        
+        function getDynamoClient() {
+          return new AWS.DynamoDB({
+            region: "us-east-1",
+            apiVersion: '2012-08-10'
+          });
+        }
 
         async function sendNotification(eventData) {
           const snsClient = getSNSClient();
@@ -53,11 +60,44 @@ Resources:
           let result = await snsClient.publish(params).promise();
           return result;
         }
+        
+        async function putDbItem(eventData) {
+          const dynamoClient = getDynamoClient();
+        
+          const eventBody = JSON.parse(eventData.body);
+          const txId = eventBody.transactionId;
+          const ngoId = eventBody.ngoRegistrationNumber;
+          const name = eventBody.createdBy;
+          const amount = eventBody.donationAmount.toString();
+          const timestamp = new Date(eventBody.createdAt).toISOString();
+        
+          const params = {
+            TableName: 'ngo-donation-offchain',
+            Item: {
+              'donationId' : {S: txId},
+              'ngoId' : {S: ngoId},
+              'donor' : {S: name},
+              'amount' : {N: amount},
+              'donationTS' : {S: timestamp},
+            }
+          };
+          
+          let result = await dynamoClient.putItem(params, function(err, data) {
+            if (err) {
+              console.log("Error", err);
+            } else {
+              console.log("Success", data);
+            }
+          }).promise();
+            
+          return result;
+        }
 
         exports.handler = async function(event) {
           const Records = event.Records || [];
           for (const Record of Records) {
             await sendNotification(Record);
+            await putDbItem(Record);
           }
           const result = Records.length + " events processed";
           const response = {
